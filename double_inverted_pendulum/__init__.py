@@ -1,6 +1,5 @@
 
-from model_binaries import __file__ as binaries_path
-from double_pendulum.python_models.double_pendulum import DoublePendulum
+from double_inverted_pendulum.model_binaries import __file__ as binaries_path
 # from visualiser.visualiser import Visualiser
 # from visualiser.visualiser_subsamp import Visualiser_subsamp
 import os

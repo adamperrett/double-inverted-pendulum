@@ -56,8 +56,10 @@ typedef enum
 typedef enum
 {
   SPECIAL_EVENT_ANGLE,
+  SPECIAL_EVENT_ANGLE_2,
   SPECIAL_EVENT_CART,
   SPECIAL_EVENT_ANGLE_V,
+  SPECIAL_EVENT_ANGLE_2_V,
   SPECIAL_EVENT_CART_V,
 } special_event_t;
 
@@ -107,13 +109,19 @@ uint_float_union pole_angle_accum;
 float pole_angle;
 float pole_velocity = 0; // angular/s
 float pole_acceleration = 0; // angular/s^2
+uint_float_union half_pole_length_accum; // m
+float half_pole_length; // m
+float pole2_angle;
+float pole2_velocity = 0; // angular/s
+float pole2_acceleration = 0; // angular/s^2
+float half_pole2_length; // m
 float highend_pole_v = 5; // used to calculate firing rate and bins
 
-#define max_bins 10
-float pole_angle_spike_time[max_bins] = {0.f};
-float pole_velocity_spike_time[max_bins] = {0.f};
-float cart_position_spike_time[max_bins] = {0.f};
-float cart_velocity_spike_time[max_bins] = {0.f};
+//#define max_bins 10
+//float pole_angle_spike_time[max_bins] = {0.f};
+//float pole_velocity_spike_time[max_bins] = {0.f};
+//float cart_position_spike_time[max_bins] = {0.f};
+//float cart_velocity_spike_time[max_bins] = {0.f};
 
 int max_firing_rate = 20;
 float max_firing_prob = 0;
@@ -127,8 +135,6 @@ uint_float_union temp_accum;
 int central = 1; // if it's central that mean perfectly central on the track and angle is the lowest rate, else half
 
 // experimental parameters
-uint_float_union half_pole_length_accum; // m
-float half_pole_length; // m
 
 float max_balance_time = 0;
 
@@ -153,12 +159,7 @@ uint32_t score_change_count=0;
 static inline void spike_angle(int bin)
 {
     uint32_t mask;
-    if (encoding_scheme != 0){
-        mask = (SPECIAL_EVENT_ANGLE * number_of_bins) + bin;
-    }
-    else{
-        mask = SPECIAL_EVENT_ANGLE;
-    }
+    mask = (SPECIAL_EVENT_ANGLE * number_of_bins) + bin;
     spin1_send_mc_packet(key | (mask), 0, NO_PAYLOAD);
 //    io_printf(IO_BUF, "spike_angle \t%d - \t%u\n", bin, mask);
 }
@@ -166,12 +167,23 @@ static inline void spike_angle(int bin)
 static inline void spike_angle_v(int bin)
 {
     uint32_t mask;
-    if (encoding_scheme != 0){
-        mask = (SPECIAL_EVENT_ANGLE_V * number_of_bins) + bin;
-    }
-    else{
-        mask = SPECIAL_EVENT_ANGLE_V;
-    }
+    mask = (SPECIAL_EVENT_ANGLE_V * number_of_bins) + bin;
+    spin1_send_mc_packet(key | (mask), 0, NO_PAYLOAD);
+//    io_printf(IO_BUF, "spike_angle_v \t%d - \t%u\n", bin, mask);
+}
+
+static inline void spike_angle_2(int bin)
+{
+    uint32_t mask;
+    mask = (SPECIAL_EVENT_ANGLE_2 * number_of_bins) + bin;
+    spin1_send_mc_packet(key | (mask), 0, NO_PAYLOAD);
+//    io_printf(IO_BUF, "spike_angle \t%d - \t%u\n", bin, mask);
+}
+
+static inline void spike_angle_2_v(int bin)
+{
+    uint32_t mask;
+    mask = (SPECIAL_EVENT_ANGLE_2_V * number_of_bins) + bin;
     spin1_send_mc_packet(key | (mask), 0, NO_PAYLOAD);
 //    io_printf(IO_BUF, "spike_angle_v \t%d - \t%u\n", bin, mask);
 }
@@ -179,12 +191,7 @@ static inline void spike_angle_v(int bin)
 static inline void spike_cart(int bin)
 {
     uint32_t mask;
-    if (encoding_scheme != 0){
-        mask = (SPECIAL_EVENT_CART * number_of_bins) + bin;
-    }
-    else{
-        mask = SPECIAL_EVENT_CART;
-    }
+    mask = (SPECIAL_EVENT_CART * number_of_bins) + bin;
     spin1_send_mc_packet(key | (mask), 0, NO_PAYLOAD);
 //    io_printf(IO_BUF, "spike_cart \t%d - \t%u\n", bin, mask);
 }
@@ -192,12 +199,7 @@ static inline void spike_cart(int bin)
 static inline void spike_cart_v(int bin)
 {
     uint32_t mask;
-    if (encoding_scheme != 0){
-        mask = (SPECIAL_EVENT_CART_V * number_of_bins) + bin;
-    }
-    else{
-        mask = SPECIAL_EVENT_CART_V;
-    }
+    mask = (SPECIAL_EVENT_CART_V * number_of_bins) + bin;
     spin1_send_mc_packet(key | (mask), 0, NO_PAYLOAD);
 //    io_printf(IO_BUF, "spike_cart_v \t%d - \t%u\n", bin, mask);
 }
@@ -268,50 +270,32 @@ static bool initialize(uint32_t *timer_period)
     encoding_scheme = pend_region[0];
     time_increment = pend_region[1];
     half_pole_length_accum.u = pend_region[2];
-//    half_pole_length = (float)(half_pole_length_accum.a);
-//    io_printf(IO_BUF, "half %u, norm %k, half %f\n", (accum)half_pole_length, (accum)half_pole_length, (accum)half_pole_length);
-//    half_pole_length_accum.a = half_pole_length_accum.a / 2.0k;
-    half_pole_length = half_pole_length_accum.f / 2.0f;
-//    io_printf(IO_BUF, "half %u, norm %k, half %f\n", (accum)half_pole_length, (accum)half_pole_length, (accum)half_pole_length);
-    half_pole_length = half_pole_length_accum.u / 2.0f;
-//    io_printf(IO_BUF, "half %u, norm %k, half %f\n", (accum)half_pole_length, (accum)half_pole_length, (accum)half_pole_length);
-    half_pole_length = half_pole_length_accum.a / 2.0f;
-//    io_printf(IO_BUF, "half %u, norm %k, half %f\n", (accum)half_pole_length, (accum)half_pole_length, (accum)half_pole_length);
     pole_angle_accum.u = pend_region[3];
     pole_angle = pole_angle_accum.a;
-//    io_printf(IO_BUF, "angle d %k\n", (accum)pole_angle);
-//    io_printf(IO_BUF, "pi %k\n", (accum)M_PI);
-//    io_printf(IO_BUF, "180 %k\n", (accum)(pole_angle / 180.0f));
     pole_angle = (pole_angle / 180.0f) * M_PI;
-//    io_printf(IO_BUF, "angle r %k\n", (accum)pole_angle);
-//    pole_angle = (float)(pole_angle_accum.a);
-//    accum temp_angle = pend_region[3];
-//    float new_angle = (float)(temp_angle);
-//    accum newer_angle = (accum)(pend_region[3]);
-//    accum test1 = 0.1k;
-//    io_printf(IO_BUF, "angle %k, divided %k test %k\n", temp_angle, newer_angle, test1);
-//    io_printf(IO_BUF, "good angle u %u, a %k, f %f\n", pole_angle_accum.u, pole_angle_accum.a, pole_angle_accum.f);
-//    io_printf(IO_BUF, "angle u %u, a %k, f %f\n", pole_angle, pole_angle, pole_angle);
-//    pole_angle = (float)pend_region[3]; // ((float)pend_region[3] / (float)0xffffffff); //
-    reward_based = pend_region[4];
-    force_increment = pend_region[5]; // (float)pend_region[5] / (float)0xffff;
-    max_firing_rate = pend_region[6];
-    number_of_bins = pend_region[7];
-    central = pend_region[8];
+    half_pole2_length_accum.u = pend_region[4];
+    pole_angle_accum.u = pend_region[5];
+    pole2_angle = pole_angle_accum.a;
+    pole2_angle = (pole_angle2 / 180.0f) * M_PI;
+    reward_based = pend_region[6];
+    force_increment = pend_region[7]; // (float)pend_region[5] / (float)0xffff;
+    max_firing_rate = pend_region[8];
+    number_of_bins = pend_region[9];
+    central = pend_region[10];
 
     bin_width = 1.f / ((float)number_of_bins - 1.f);
     max_firing_prob = max_firing_rate / 1000.f;
 //    accum
     // pass in random seeds
-    kiss_seed[0] = pend_region[9];
-    kiss_seed[1] = pend_region[10];
-    kiss_seed[2] = pend_region[11];
-    kiss_seed[3] = pend_region[12];
+    kiss_seed[0] = pend_region[11];
+    kiss_seed[1] = pend_region[12];
+    kiss_seed[2] = pend_region[13];
+    kiss_seed[3] = pend_region[14];
     validate_mars_kiss64_seed(kiss_seed);
 
-    temp_accum.u = pend_region[13];
+    temp_accum.u = pend_region[15];
     bin_overlap = temp_accum.a;
-    temp_accum.u = pend_region[14];
+    temp_accum.u = pend_region[16];
     tau_force = temp_accum.a;
 
     force_increment = (float)((max_motor_force - min_motor_force) / (float)force_increment);
@@ -353,8 +337,10 @@ static bool initialize(uint32_t *timer_period)
 //    io_printf(IO_BUF, "r6 0x%x\n", *pend_region);
 //    io_printf(IO_BUF, "r6 0x%x\n", &pend_region);
 
-    io_printf(IO_BUF, "starting state (d,v,a):(%k, %k, %k) and cart (d,v,a):(%k, %k, %k)\n", (accum)pole_angle, (accum)pole_velocity,
-                        (accum)pole_acceleration, (accum)cart_position, (accum)cart_velocity, (accum)cart_acceleration);
+    io_printf(IO_BUF, "starting state (d,v,a) & 2:(%k, %k, %k) & (%k, %k, %k) and cart (d,v,a):(%k, %k, %k)\n",
+                        (accum)pole_angle, (accum)pole_velocity, (accum)pole_acceleration,
+                        (accum)pole2_angle, (accum)pole2_velocity, (accum)pole2_acceleration,
+                        (accum)cart_position, (accum)cart_velocity, (accum)cart_acceleration);
 
     io_printf(IO_BUF, "Initialise: completed successfully\n");
 
