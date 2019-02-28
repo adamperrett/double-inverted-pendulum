@@ -115,6 +115,8 @@ class DoublePendulum(ApplicationVertex,
         'time_increment': 20,
         'pole_length': 1.0,
         'pole_angle': 0.1,
+        'pole2_length': 0.1,
+        'pole2_angle': 0,
         'reward_based': 1,
         'force_increments': 100,
         'max_firing_rate': 100,
@@ -134,6 +136,8 @@ class DoublePendulum(ApplicationVertex,
                  time_increment=default_parameters['time_increment'],
                  pole_length=default_parameters['pole_length'],
                  pole_angle=default_parameters['pole_angle'],
+                 pole2_length=default_parameters['pole2_length'],
+                 pole2_angle=default_parameters['pole2_angle'],
                  reward_based=default_parameters['reward_based'],
                  force_increments=default_parameters['force_increments'],
                  max_firing_rate=default_parameters['max_firing_rate'],
@@ -156,13 +160,12 @@ class DoublePendulum(ApplicationVertex,
         # Pass in variables
         self._pole_length = pole_length
         self._pole_angle = pole_angle
+        self._pole2_length = pole2_length
+        self._pole2_angle = pole2_angle
 
         self._force_increments= force_increments
         # for rate based it's only 1 neuron per metric (position, angle, velocity of both)
-        if self._encoding == 0:
-            self._n_neurons = 4
-        else:
-            self._n_neurons = 4 * number_of_bins
+        self._n_neurons = 6 * number_of_bins
 
         self._time_increment = time_increment
         self._reward_based = reward_based
@@ -302,12 +305,10 @@ class DoublePendulum(ApplicationVertex,
         ip_tags = tags.get_ip_tags_for_vertex(self) or []
         spec.write_value(self._encoding, data_type=DataType.UINT32)
         spec.write_value(self._time_increment, data_type=DataType.UINT32)
-        # new_length = numpy.uint32(self._pole_length)
-        # spec.write_value(numpy.uint32(self._pole_length), data_type=DataType.UINT32)
         spec.write_value(self._pole_length, data_type=DataType.S1615)
-        # new_angle = numpy.int(self._pole_angle * 0x7fffffff)
-        # spec.write_value(numpy.uint32(new_angle), data_type=DataType.UINT32)
         spec.write_value(self._pole_angle, data_type=DataType.S1615)
+        spec.write_value(self._pole2_length, data_type=DataType.S1615)
+        spec.write_value(self._pole2_angle, data_type=DataType.S1615)
         spec.write_value(self._reward_based, data_type=DataType.UINT32)
         spec.write_value(self._force_increments, data_type=DataType.UINT32)
         spec.write_value(self._max_firing_rate, data_type=DataType.UINT32)

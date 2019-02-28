@@ -138,7 +138,7 @@ int central = 1; // if it's central that mean perfectly central on the track and
 
 float max_balance_time = 0;
 
-float current_state[2];
+float current_state[3];
 bool in_bounds = true;
 
 uint32_t time_increment;
@@ -273,10 +273,10 @@ static bool initialize(uint32_t *timer_period)
     pole_angle_accum.u = pend_region[3];
     pole_angle = pole_angle_accum.a;
     pole_angle = (pole_angle / 180.0f) * M_PI;
-    half_pole2_length_accum.u = pend_region[4];
+    half_pole_length_accum.u = pend_region[4];
     pole_angle_accum.u = pend_region[5];
     pole2_angle = pole_angle_accum.a;
-    pole2_angle = (pole_angle2 / 180.0f) * M_PI;
+    pole2_angle = (pole2_angle / 180.0f) * M_PI;
     reward_based = pend_region[6];
     force_increment = pend_region[7]; // (float)pend_region[5] / (float)0xffff;
     max_firing_rate = pend_region[8];
@@ -370,18 +370,30 @@ static bool initialize(uint32_t *timer_period)
 bool update_state(float time_step){
     float gravity = -9.8; // m/s^2
     float mass_cart = 1; // kg
-    float mass_pole = 0.1; // kg
+    float mass_pole_pm = 0.1; // kg
     float friction_cart_on_track = 0.0005; // coefficient of friction
     float friction_pole_hinge = 0.000002; // coefficient of friction
 
+    // equation fro pole 1
     float effective_force_pole_on_cart = 0;
+    float mass_pole = mass_pole_pm * half_pole_length;
     float pole_angle_force = (mass_pole * half_pole_length * pole_velocity * pole_velocity * sin(pole_angle));
     float angle_scalar = ((3.0f / 4.0f) * mass_pole * cos(pole_angle));
     float friction_and_gravity = (((friction_pole_hinge * pole_velocity) / (mass_pole * half_pole_length)) +
                         (gravity * sin(pole_angle)));
     float effective_pole_mass = mass_pole * (1.0f - ((3.0f / 4.0f) * cos(pole_angle) * cos(pole_angle)));
-
     effective_force_pole_on_cart = pole_angle_force + (angle_scalar * friction_and_gravity);
+
+    // equation for pole 2
+    mass_pole = mass_pole_pm * half_pole2_length;
+    pole_angle_force = (mass_pole * half_pole2_length * pole2_velocity * pole2_velocity * sin(pole2_angle));
+    angle_scalar = ((3.0f / 4.0f) * mass_pole * cos(pole2_angle));
+    friction_and_gravity = (((friction_pole_hinge * pole2_velocity) / (mass_pole * half_pole2_length)) +
+                        (gravity * sin(pole2_angle)));
+    effective_pole_mass = effective_pole_mass + (mass_pole * (1.0f - ((3.0f / 4.0f) * cos(pole2_angle) * cos(pole2_angle))));
+
+    effective_force_pole_on_cart = effective_force_pole_on_cart + pole_angle_force + (angle_scalar * friction_and_gravity);
+
     if (cart_velocity > 0){
         cart_acceleration = (motor_force - friction_cart_on_track + effective_force_pole_on_cart) /
                                 (mass_cart + effective_pole_mass);
@@ -390,18 +402,30 @@ bool update_state(float time_step){
         cart_acceleration = (motor_force + friction_cart_on_track + effective_force_pole_on_cart) /
                                 (mass_cart + effective_pole_mass);
     }
-
+    // time step pole 1
+    mass_pole = mass_pole_pm * half_pole_length;
     float length_scalar = -3.0f / (4.0f * half_pole_length);
     float cart_acceleration_effect = cart_acceleration * cos(pole_angle);
     float gravity_effect = gravity * sin(pole_angle);
     float friction_effect = (friction_pole_hinge * pole_velocity) / (mass_pole * half_pole_length);
     pole_acceleration = length_scalar * (cart_acceleration_effect + gravity_effect + friction_effect);
 
-    cart_velocity = (cart_acceleration * time_step) + cart_velocity;
-    cart_position = (cart_velocity * time_step) + cart_position;
-
     pole_velocity = (pole_acceleration * time_step) + pole_velocity;
     pole_angle = (pole_velocity * time_step) + pole_angle;
+
+    // time step pole 2
+    mass_pole = mass_pole_pm * half_pole2_length;
+    length_scalar = -3.0f / (4.0f * half_pole2_length);
+    cart_acceleration_effect = cart_acceleration * cos(pole2_angle);
+    gravity_effect = gravity * sin(pole2_angle);
+    friction_effect = (friction_pole_hinge * pole2_velocity) / (mass_pole * half_pole2_length);
+    pole2_acceleration = length_scalar * (cart_acceleration_effect + gravity_effect + friction_effect);
+
+    pole2_velocity = (pole2_acceleration * time_step) + pole2_velocity;
+    pole2_angle = (pole2_velocity * time_step) + pole2_angle;
+
+    cart_velocity = (cart_acceleration * time_step) + cart_velocity;
+    cart_position = (cart_velocity * time_step) + cart_position;
 
     if (tau_force){
         motor_force = motor_force * exp(time_step / tau_force);
@@ -410,7 +434,9 @@ bool update_state(float time_step){
         motor_force = 0;
     }
 
-    if (cart_position > track_length || cart_position < 0  || pole_angle > max_pole_angle  || pole_angle < min_pole_angle) {
+    if (cart_position > track_length || cart_position < 0 ||
+        pole_angle > max_pole_angle  || pole_angle < min_pole_angle ||
+        pole2_angle > max_pole_angle  || pole2_angle < min_pole_angle) {
         io_printf(IO_BUF, "failed out\n");
         return false;
     }
@@ -475,102 +501,42 @@ bool firing_prob(float relative_value, int bin){
 }
 
 void send_status(){
-    if (encoding_scheme == 0){ // rate encoding
-        float relative_cart = 0;
-        float relative_angle = 0;
-        float relative_cart_velocity = 0;
-        float relative_angular_velocity = 0;
-        if (central){
-            if (pole_angle > 0){
-                relative_angle = pole_angle / max_pole_angle_bin;
-            }
-            else{
-                relative_angle = -pole_angle / max_pole_angle_bin;
-            }
-            if (pole_velocity > 0){
-                relative_angular_velocity = pole_velocity / highend_pole_v;
-            }
-            else{
-                relative_angular_velocity = -pole_velocity / highend_pole_v;
-            }
-            if (cart_position - (track_length / 2.0f) > 0){
-                relative_cart = (cart_position - (track_length / 2.0f)) / (track_length / 2.0f);
-            }
-            else{
-                relative_cart = -(cart_position - (track_length / 2.0f)) / (track_length / 2.0f);
-            }
-            if (cart_velocity > 0){
-                relative_cart_velocity = cart_velocity / (highend_cart_v);
-            }
-            else{
-                relative_cart_velocity = -cart_velocity / (highend_cart_v);
-            }
+    float relative_cart;
+    float relative_cart_velocity;
+    float relative_angle;
+    float relative_angular_velocity;
+    float relative_angle_2;
+    float relative_angular_velocity_2;
+    relative_cart = cart_position / track_length;
+//    io_printf(IO_BUF, "rela = %k, cart = %k, max = %k\n", (accum)relative_cart, (accum)cart_position, (accum)track_length);
+    relative_cart_velocity = (cart_velocity + highend_cart_v) / (2.f * highend_cart_v);
+//    io_printf(IO_BUF, "rela = %k, cartv = %k, maxv = %k\n", (accum)relative_cart_velocity, (accum)cart_velocity, (accum)highend_cart_v);
+    relative_angle = (pole_angle + max_pole_angle_bin) / (2.f * max_pole_angle_bin);
+//    io_printf(IO_BUF, "rela = %k, ang = %k, max = %k\n", (accum)relative_angle, (accum)pole_angle, (accum)max_pole_angle_bin);
+    relative_angular_velocity = (pole_velocity + highend_pole_v) / (2.f * highend_pole_v);
+//    io_printf(IO_BUF, "rela = %k, angv = %k, maxv = %k\n", (accum)relative_angular_velocity, (accum)pole_velocity, (accum)highend_pole_v);
+    relative_angle_2 = (pole2_angle + max_pole_angle_bin) / (2.f * max_pole_angle_bin);
+//    io_printf(IO_BUF, "rela = %k, ang = %k, max = %k\n", (accum)relative_angle, (accum)pole_angle, (accum)max_pole_angle_bin);
+    relative_angular_velocity_2 = (pole2_velocity + highend_pole_v) / (2.f * highend_pole_v);
+//    io_printf(IO_BUF, "rela = %k, angv = %k, maxv = %k\n", (accum)relative_angular_velocity, (accum)pole_velocity, (accum)highend_pole_v);
+    for (int i = 0; i < number_of_bins; i = i + 1){
+        if (firing_prob(relative_cart, i)){
+            spike_cart(i);
         }
-        else{
-            relative_angle = (pole_angle - min_pole_angle_bin) / (max_pole_angle_bin - min_pole_angle_bin);
-            relative_angular_velocity = (pole_velocity + highend_pole_v) / (highend_pole_v * 2.f);
-            relative_cart = cart_position / track_length;
-            relative_cart_velocity = (cart_velocity + highend_cart_v) / (highend_cart_v * 2.f);
+        if (firing_prob(relative_cart_velocity, i)){
+            spike_cart_v(i);
         }
-//        io_printf(IO_BUF, "relative (angle, v) (%k, %k) and (cart, v) (%k, %k)\n", (accum)relative_angle,
-//                            (accum)relative_angular_velocity, (accum)relative_cart, (accum)relative_cart_velocity);
-        float angle_roll = 0;
-        float angle_roll_v = 0;
-        float cart_roll = 0;
-        float cart_roll_v = 0;
-        angle_roll = rand021();
-        angle_roll_v = rand021();
-        cart_roll = rand021();
-        cart_roll_v = rand021();
-//        io_printf(IO_BUF, "roll (angle, v) (%k, %k) and (cart, v) %k, %k wth max = %k\n", (accum)angle_roll,
-//                                                                        (accum)angle_roll_v, (accum)cart_roll,
-//                                                                        (accum)cart_roll_v, (accum)max_firing_prob);
-        angle_roll = angle_roll / relative_angle;
-        angle_roll_v = angle_roll_v / relative_angular_velocity;
-        cart_roll = cart_roll / relative_cart_velocity;
-        cart_roll_v = cart_roll_v / relative_cart_velocity;
-//        io_printf(IO_BUF, "relative roll (angle, v) (%k, %k) and (cart, v) %k, %k wth max = %k\n", (accum)angle_roll,
-//                                                                        (accum)angle_roll_v, (accum)cart_roll,
-//                                                                        (accum)cart_roll_v, (accum)max_firing_prob);
-        if (angle_roll < max_firing_prob){
-            spike_angle(0);
+        if (firing_prob(relative_angle, i)){
+            spike_angle(i);
         }
-        if (angle_roll_v < max_firing_prob){
-            spike_angle_v(0);
+        if (firing_prob(relative_angular_velocity, i)){
+            spike_angle_v(i);
         }
-        if (cart_roll < max_firing_prob){
-            spike_cart(0);
+        if (firing_prob(relative_angle_2, i)){
+            spike_angle_2(i);
         }
-        if (cart_roll_v < max_firing_prob){
-            spike_cart_v(0);
-        }
-    }
-    else if (encoding_scheme == 1){ // rate encoding with bins
-        float relative_cart;
-        float relative_angle;
-        float relative_cart_velocity;
-        float relative_angular_velocity;
-        relative_angle = (pole_angle + max_pole_angle_bin) / (2.f * max_pole_angle_bin);
-    //    io_printf(IO_BUF, "rela = %k, ang = %k, max = %k\n", (accum)relative_angle, (accum)pole_angle, (accum)max_pole_angle_bin);
-        relative_angular_velocity = (pole_velocity + highend_pole_v) / (2.f * highend_pole_v);
-    //    io_printf(IO_BUF, "rela = %k, angv = %k, maxv = %k\n", (accum)relative_angular_velocity, (accum)pole_velocity, (accum)highend_pole_v);
-        relative_cart = cart_position / track_length;
-    //    io_printf(IO_BUF, "rela = %k, cart = %k, max = %k\n", (accum)relative_cart, (accum)cart_position, (accum)track_length);
-        relative_cart_velocity = (cart_velocity + highend_cart_v) / (2.f * highend_cart_v);
-    //    io_printf(IO_BUF, "rela = %k, cartv = %k, maxv = %k\n", (accum)relative_cart_velocity, (accum)cart_velocity, (accum)highend_cart_v);
-        for (int i = 0; i < number_of_bins; i = i + 1){
-            if (firing_prob(relative_angle, i)){
-                spike_angle(i);
-            }
-            if (firing_prob(relative_angular_velocity, i)){
-                spike_angle_v(i);
-            }
-            if (firing_prob(relative_cart, i)){
-                spike_cart(i);
-            }
-            if (firing_prob(relative_cart_velocity, i)){
-                spike_cart_v(i);
-            }
+        if (firing_prob(relative_angular_velocity_2, i)){
+            spike_angle_2_v(i);
         }
     }
 }
@@ -627,8 +593,9 @@ void timer_callback(uint unused, uint dummy)
             if(score_change_count >= 100){
                 current_state[0] = cart_position;
                 current_state[1] = pole_angle;
+                current_state[2] = pole2_angle;
                 if(reward_based == 0){
-                    recording_record(0, &current_state, 8);
+                    recording_record(0, &current_state, 12);
                 }
                 else{
                     recording_record(0, &max_balance_time, 4);
